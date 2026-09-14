@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lista de Compras</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; margin: 0; padding: 0; }
+        body { background-color: #e9ecef; display: flex; justify-content: center; }
+        
+        .app-container { width: 100%; max-width: 480px; background-color: #f4f6f8; min-height: 100vh; position: relative; padding-bottom: 90px; }
+        .header { background-color: #2e7d32; color: white; padding: 20px; text-align: center; font-size: 22px; font-weight: bold; display: flex; justify-content: space-between; align-items: center;}
+
+        /* Botão discreto no cabeçalho para limpar a lista */
+        .btn-limpar { background: rgba(255,255,255,0.2); color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;}
+        .btn-limpar:hover { background: rgba(255,255,255,0.3); }
+
+        .form-container { background-color: white; padding: 15px; border-bottom: 1px solid #ddd; }
+        .input-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        input, select { padding: 12px; border: 1px solid #ccc; border-radius: 8px; outline: none; }
+        .input-nome { flex: 2; }
+        .input-preco { flex: 1; max-width: 100px; }
+        select { flex: 1; }
+        .btn-add { width: 100%; padding: 12px; background-color: #2e7d32; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px; transition: 0.2s;}
+        .btn-add:hover { background-color: #1b5e20; }
+        
+        .lista-container { padding: 15px; }
+        
+        /* Título de cada categoria */
+        .categoria-titulo { color: #555; font-size: 16px; margin: 15px 0 10px 5px; border-bottom: 2px solid #ddd; padding-bottom: 5px; text-transform: uppercase;}
+
+        .item-card { background: white; padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .item-info-group { display: flex; align-items: center; gap: 15px; flex: 1; }
+        .check-circle { width: 28px; height: 28px; border: 2px solid #ccc; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: transparent; font-weight: bold; }
+        
+        .item-card.comprado { opacity: 0.7; background-color: #f8f9fa; }
+        .item-card.comprado .check-circle { background-color: #4caf50; border-color: #4caf50; color: white; }
+        .item-card.comprado .item-nome { text-decoration: line-through; color: #888; }
+
+        .texto-grupo { display: flex; flex-direction: column; }
+        .item-nome { font-size: 18px; font-weight: bold; color: #333; }
+        .item-detalhes { font-size: 13px; color: #888; margin-top: 4px; }
+        
+        .acoes-grupo { display: flex; align-items: center; gap: 10px; }
+        .qtd-controle { display: flex; align-items: center; background: #f1f3f5; border-radius: 20px; padding: 2px 5px; }
+        .btn-qtd { background: none; border: none; font-size: 18px; font-weight: bold; width: 28px; height: 28px; cursor: pointer; color: #555; border-radius: 50%; display: flex; justify-content: center; align-items: center; }
+        .btn-qtd:hover { background: #e2e6ea; }
+        .qtd-valor { font-weight: bold; font-size: 15px; width: 20px; text-align: center; }
+
+        .btn-excluir { background: none; border: none; font-size: 20px; cursor: pointer; color: #ccc; padding: 5px; }
+        .btn-excluir:hover { color: #f44336; }
+
+        .footer-total { position: fixed; bottom: 0; width: 100%; max-width: 480px; background-color: white; padding: 20px; text-align: center; font-size: 20px; font-weight: bold; color: #2e7d32; box-shadow: 0 -4px 10px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="header">
+        <span>🛒 Lista de Compras</span>
+        <button class="btn-limpar" onclick="limparComprados()">Limpar Comprados</button>
+    </div>
+    
+    <div class="form-container">
+        <div class="input-row">
+            <input type="text" id="nome-item" class="input-nome" placeholder="Produto...">
+            <input type="number" id="preco-item" class="input-preco" placeholder="R$ 0.00" step="0.01">
+        </div>
+        <div class="input-row">
+            <select id="categoria-item"><option value="">Categoria...</option></select>
+            <button class="btn-add" onclick="adicionarItem()">+ Adicionar</button>
+        </div>
+    </div>
+
+    <div class="lista-container" id="lista-de-itens"></div>
+    <div class="footer-total" id="valor-total">Total da Compra: R$ 0,00</div>
+</div>
+
+<script>
+    const urlApi = 'http://127.0.0.1:8000';
+    let itensGlobais = []; 
+
+    async function carregarCategorias() {
+        const resposta = await fetch(`${urlApi}/categorias`);
+        const categorias = await resposta.json();
+        const select = document.getElementById('categoria-item');
+        categorias.forEach(cat => {
+            select.innerHTML += `<option value="${cat.id}">${cat.nome}</option>`;
+        });
+    }
+
+    async function carregarItens() {
+        const resposta = await fetch(`${urlApi}/itens`);
+        itensGlobais = await resposta.json();
+        
+        const divLista = document.getElementById('lista-de-itens');
+        divLista.innerHTML = ''; 
+
+        // 1. Agrupando os itens por categoria
+        const itensAgrupados = {};
+        itensGlobais.forEach(item => {
+            // Se a categoria ainda não existe no nosso grupo, criamos uma lista vazia para ela
+            if (!itensAgrupados[item.categoria]) {
+                itensAgrupados[item.categoria] = [];
+            }
+            // Colocamos o item dentro da categoria certa
+            itensAgrupados[item.categoria].push(item);
+        });
+
+        // 2. Desenhando a tela separada por blocos
+        for (const categoriaNome in itensAgrupados) {
+            // Adiciona o título da categoria
+            divLista.innerHTML += `<h3 class="categoria-titulo">${categoriaNome}</h3>`;
+            
+            // Adiciona os itens que pertencem a esta categoria
+            itensAgrupados[categoriaNome].forEach(item => {
+                const classeCss = item.comprado ? 'comprado' : '';
+                const precoFormatado = item.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                
+                divLista.innerHTML += `
+                    <div class="item-card ${classeCss}" onclick="ticarItem(${item.id})">
+                        <div class="item-info-group">
+                            <div class="check-circle">✓</div>
+                            <div class="texto-grupo">
+                                <span class="item-nome">${item.nome}</span>
+                                <span class="item-detalhes">${precoFormatado}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="acoes-grupo">
+                            <div class="qtd-controle">
+                                <button class="btn-qtd" onclick="alterarQuantidade(event, ${item.id}, 'diminuir')">-</button>
+                                <span class="qtd-valor">${item.quantidade}</span>
+                                <button class="btn-qtd" onclick="alterarQuantidade(event, ${item.id}, 'aumentar')">+</button>
+                            </div>
+                            <button class="btn-excluir" onclick="deletarItem(event, ${item.id})">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        calcularTotal();
+    }
+
+    async function limparComprados() {
+        if (!confirm("Remover todos os itens que já foram comprados?")) return;
+        await fetch(`${urlApi}/itens-comprados`, { method: 'DELETE' });
+        carregarItens();
+    }
+
+    async function alterarQuantidade(evento, id, acao) {
+        evento.stopPropagation(); 
+        await fetch(`${urlApi}/itens/${id}/${acao}`, { method: 'PUT' });
+        carregarItens();
+    }
+
+    function calcularTotal() {
+        let total = 0;
+        itensGlobais.forEach(item => {
+            if (item.comprado) {
+                total += item.preco * item.quantidade;
+            }
+        });
+        const totalFormatado = total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        document.getElementById('valor-total').innerText = `Total da Compra: ${totalFormatado}`;
+    }
+
+    async function adicionarItem() {
+        const nomeDigitado = document.getElementById('nome-item').value;
+        const categoriaEscolhida = document.getElementById('categoria-item').value;
+        const precoDigitado = parseFloat(document.getElementById('preco-item').value) || 0.0;
+        
+        if (nomeDigitado === '' || categoriaEscolhida === '') { alert("Preencha o nome e selecione uma categoria!"); return; }
+        
+        await fetch(`${urlApi}/itens`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: nomeDigitado, categoria_id: parseInt(categoriaEscolhida), preco: precoDigitado })
+        });
+        
+        document.getElementById('nome-item').value = '';
+        document.getElementById('preco-item').value = '';
+        carregarItens();
+    }
+
+    async function ticarItem(id) {
+        await fetch(`${urlApi}/itens/${id}`, { method: 'PUT' });
+        carregarItens(); 
+    }
+
+    async function deletarItem(evento, id) {
+        evento.stopPropagation();
+        if (!confirm("Excluir este item da lista?")) return;
+        await fetch(`${urlApi}/itens/${id}`, { method: 'DELETE' });
+        carregarItens();
+    }
+
+    carregarCategorias();
+    carregarItens();
+</script>
+
+</body>
+</html>
