@@ -1,28 +1,25 @@
-import sqlite3
+import psycopg2
 
-conexao = sqlite3.connect('compras.db')
+URL_NEON = "postgresql://neondb_owner:npg_9Zri4VAtomkM@ep-purple-dawn-b6x9hc07-pooler.c-2.sa-east-1.aws.neon.tech/neondb?sslmode=require"
+
+conexao = psycopg2.connect(URL_NEON)
 cursor = conexao.cursor()
 
-# 1. Inserindo as Categorias
-# O id é gerado automaticamente pelo AUTOINCREMENT, então só enviamos o nome.
-# Usamos o símbolo (?) como boa prática de segurança (evita SQL Injection).
-cursor.execute("INSERT INTO categorias (nome) VALUES (?)", ('Laticínios',))
-cursor.execute("INSERT INTO categorias (nome) VALUES (?)", ('Limpeza',))
-cursor.execute("INSERT INTO categorias (nome) VALUES (?)", ('Hortifruti',))
-
-# 2. Inserindo os Itens
-# Como inserimos Laticínios primeiro, o ID dela no banco é 1. Limpeza é 2. Hortifruti é 3.
-cursor.execute('''
-    INSERT INTO itens (nome, quantidade, comprado, categoria_id) 
-    VALUES (?, ?, ?, ?)
-''', ('Queijo Mussarela', 1, 0, 1)) # 1 unidade, 0 (não comprado), categoria 1
+# O PostgreSQL usa %s para os parâmetros
+cursor.execute("INSERT INTO categorias (nome) VALUES (%s)", ('Laticínios',))
+cursor.execute("INSERT INTO categorias (nome) VALUES (%s)", ('Limpeza',))
+cursor.execute("INSERT INTO categorias (nome) VALUES (%s)", ('Hortifruti',))
 
 cursor.execute('''
     INSERT INTO itens (nome, quantidade, comprado, categoria_id) 
-    VALUES (?, ?, ?, ?)
-''', ('Detergente', 3, 0, 2)) # 3 unidades, 0 (não comprado), categoria 2
+    VALUES (%s, %s, %s, %s)
+''', ('Queijo Mussarela', 1, False, 1)) # PostgreSQL usa False/True para booleanos
 
-# 3. Salvando as alterações
+cursor.execute('''
+    INSERT INTO itens (nome, quantidade, comprado, categoria_id) 
+    VALUES (%s, %s, %s, %s)
+''', ('Detergente', 3, False, 2))
+
 conexao.commit()
 conexao.close()
 

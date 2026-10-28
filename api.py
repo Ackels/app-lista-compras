@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import sqlite3
+import psycopg2
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Meu App de Compras")
 
-# Configuração de Segurança (CORS) para permitir que o HTML converse com a API
+URL_NEON = "postgresql://neondb_owner:npg_9Zri4VAtomkM@ep-purple-dawn-b6x9hc07-pooler.c-2.sa-east-1.aws.neon.tech/neondb?sslmode=require"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,9 +22,9 @@ class NovoItem(BaseModel):
 
 @app.get("/categorias")
 def listar_categorias():
-    conexao = sqlite3.connect('compras.db')
+    conexao = psycopg2.connect(URL_NEON)
     cursor = conexao.cursor()
-    cursor.execute("SELECT id, nome FROM categorias")
+    cursor.execute("SELECT id, nome FROM categorias ORDER BY id ASC")
     resultados = cursor.fetchall()
     conexao.close()
     
@@ -34,25 +35,26 @@ def listar_categorias():
 
 @app.post("/itens")
 def adicionar_item(item: NovoItem):
-    conexao = sqlite3.connect('compras.db')
+    conexao = psycopg2.connect(URL_NEON)
     cursor = conexao.cursor()
     cursor.execute(
-        "INSERT INTO itens (nome, quantidade, comprado, categoria_id, preco) VALUES (?, 1, 0, ?, ?)",
+        "INSERT INTO itens (nome, quantidade, comprado, categoria_id, preco) VALUES (%s, 1, FALSE, %s, %s)",
         (item.nome, item.categoria_id, item.preco)
     )
     conexao.commit()
     conexao.close()
     return {"mensagem": f"O item '{item.nome}' foi adicionado com sucesso!"}
 
-# --- A ROTA QUE PROVAVELMENTE FULTOU ---
 @app.get("/itens")
 def listar_itens():
-    conexao = sqlite3.connect('compras.db')
+    conexao = psycopg2.connect(URL_NEON)
     cursor = conexao.cursor()
+    # Adicionado ORDER BY itens.id ASC para fixar a ordem da lista na tela
     cursor.execute('''
         SELECT itens.id, itens.nome, itens.quantidade, categorias.nome, itens.comprado, itens.preco
         FROM itens
         JOIN categorias ON itens.categoria_id = categorias.id
+        ORDER BY itens.id ASC
     ''')
     resultados = cursor.fetchall()
     conexao.close()
@@ -65,75 +67,63 @@ def listar_itens():
             "quantidade": linha[2],
             "categoria": linha[3],
             "comprado": bool(linha[4]),
-            "preco": linha[5]  # Adicionamos o preço aqui!
+            "preco": float(linha[5]) if linha[5] is not None else 0.0
         })
     return lista_itens
 
 @app.put("/itens/{item_id}")
 def alternar_item(item_id: int):
-    conexao = sqlite3.connect('compras.db')
+    conexao = psycopg2.connect(URL_NEON)
     cursor = conexao.cursor()
     
-    # 1. Primeiro, perguntamos ao banco qual é o status atual deste item
-    cursor.execute("SELECT comprado FROM itens WHERE id = ?", (item_id,))
-    status_atual = cursor.fetchone()[0]
+    cursor.execute("SELECT comprado FROM itens WHERE id = %s", (item_id,))
+    linha = cursor.fetchone()
+    if not linha:
+        conexao.close()
+        return {"erro": "Item não encontrado"}
+        
+    status_atual = linha[0]
+    # Alterna valor booleano nativo do PostgreSQL
+    novo_status = not bool(status_atual)
     
-    # 2. Se for 1, vira 0. Se for 0, vira 1 (Lógica de "interruptor")
-    novo_status = 0 if status_atual == 1 else 1
-    
-    # 3. Atualizamos o banco com o novo status
-    cursor.execute("UPDATE itens SET comprado = ? WHERE id = ?", (novo_status, item_id))
+    cursor.execute("UPDATE itens SET comprado = %s WHERE id = %s", (novo_status, item_id))
     conexao.commit()
     conexao.close()
     
     return {"mensagem": f"Status do item {item_id} alterado!"}
 
-
-# NOVA ROTA: O verbo DELETE é o padrão na internet para apagar coisas
 @app.delete("/itens/{item_id}")
 def deletar_item(item_id: int):
-    conexao = sqlite3.connect('compras.db')
+    conexao = psycopg2.connect(URL_NEON)
     cursor = conexao.cursor()
-    
-    # Apaga do banco onde o ID for igual ao enviado
-    cursor.execute("DELETE FROM itens WHERE id = ?", (item_id,))
+    cursor.execute("DELETE FROM itens WHERE id = %s", (item_id,))
     conexao.commit()
     conexao.close()
-    
     return {"mensagem": "Item excluído com sucesso!"}
 
-# Rota para AUMENTAR a quantidade
 @app.put("/itens/{item_id}/aumentar")
 def aumentar_quantidade(item_id: int):
-    conexao = sqlite3.connect('compras.db')
+    conexao = psycopg2.connect(URL_NEON)
     cursor = conexao.cursor()
-    # Pega o valor atual e soma 1
-    cursor.execute("UPDATE itens SET quantidade = quantidade + 1 WHERE id = ?", (item_id,))
+    cursor.execute("UPDATE itens SET quantidade = quantidade + 1 WHERE id = %s", (item_id,))
     conexao.commit()
     conexao.close()
     return {"mensagem": "Quantidade aumentada"}
 
-# Rota para DIMINUIR a quantidade
 @app.put("/itens/{item_id}/diminuir")
 def diminuir_quantidade(item_id: int):
-    conexao = sqlite3.connect('compras.db')
+    conexao = psycopg2.connect(URL_NEON)
     cursor = conexao.cursor()
-    # Subtrai 1, mas a regra "AND quantidade > 1" impede que a quantidade fique zero ou negativa
-    cursor.execute("UPDATE itens SET quantidade = quantidade - 1 WHERE id = ? AND quantidade > 1", (item_id,))
+    cursor.execute("UPDATE itens SET quantidade = quantidade - 1 WHERE id = %s AND quantidade > 1", (item_id,))
     conexao.commit()
     conexao.close()
     return {"mensagem": "Quantidade diminuída"}
 
 @app.delete("/itens-comprados")
 def limpar_comprados():
-    conexao = sqlite3.connect('compras.db')
+    conexao = psycopg2.connect(URL_NEON)
     cursor = conexao.cursor()
-    cursor.execute("DELETE FROM itens WHERE comprado = 1")
+    cursor.execute("DELETE FROM itens WHERE comprado = TRUE")
     conexao.commit()
     conexao.close()
     return {"mensagem": "Itens comprados foram removidos!"}
-
-
-
-
-# python -m uvicorn api:app --reload

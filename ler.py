@@ -1,27 +1,26 @@
-import sqlite3
+import psycopg2
 
-conexao = sqlite3.connect('compras.db')
+URL_NEON = "postgresql://neondb_owner:npg_9Zri4VAtomkM@ep-purple-dawn-b6x9hc07-pooler.c-2.sa-east-1.aws.neon.tech/neondb?sslmode=require"
+
+conexao = psycopg2.connect(URL_NEON)
 cursor = conexao.cursor()
 
-# 1. Fazendo a consulta (Query) cruzando as duas tabelas
 cursor.execute('''
     SELECT itens.nome, itens.quantidade, categorias.nome, itens.comprado
     FROM itens
     JOIN categorias ON itens.categoria_id = categorias.id
 ''')
 
-# 2. Pegando todos os resultados devolvidos pelo banco
 resultados = cursor.fetchall()
 
-# 3. Exibindo de forma amigável no terminal
 print("--- MINHA LISTA DE COMPRAS ---")
 for linha in resultados:
     nome_item = linha[0]
     quantidade = linha[1]
     nome_categoria = linha[2]
     
-    # Se for 1, é verdadeiro (comprado). Se for 0, é falso (pendente).
-    status = "[x] Comprado" if linha[3] == 1 else "[ ] Pendente"
+    # O PostgreSQL devolve um valor booleano (True/False) em vez de números (1/0)
+    status = "[x] Comprado" if linha[3] else "[ ] Pendente"
     
     print(f"{status} | {quantidade}x {nome_item} (Categoria: {nome_categoria})")
 
