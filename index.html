@@ -18,6 +18,9 @@
         .btn-limpar { background: rgba(255,255,255,0.2); color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;}
         .btn-limpar:hover { background: rgba(255,255,255,0.3); }
 
+        /* Banner de carregamento do servidor Render */
+        #banner-servidor { display: none; background-color: #fff3cd; color: #856404; padding: 12px 15px; font-size: 13px; text-align: center; border-bottom: 1px solid #ffeeba; font-weight: bold; }
+
         .form-container { background-color: white; padding: 15px; border-bottom: 1px solid #ddd; }
         .input-row { display: flex; gap: 8px; margin-bottom: 10px; }
         input, select { padding: 12px; border: 1px solid #ccc; border-radius: 8px; outline: none; }
@@ -36,7 +39,6 @@
         #leitor-container { display: none; margin-top: 10px; border-radius: 8px; overflow: hidden; border: 2px solid #1976d2; background: #111; }
         .ferramentas-scanner { padding: 12px; background: #222; display: flex; flex-direction: column; gap: 8px; }
         .btn-upload-foto { width: 100%; background: #444; color: white; border: 1px solid #666; padding: 10px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; }
-        .btn-upload-foto:hover { background: #555; }
         
         .codigo-manual-row { display: flex; gap: 6px; }
         .input-codigo-manual { flex: 1; padding: 8px 10px; font-size: 13px; border-radius: 6px; border: 1px solid #555; background: #333; color: white; }
@@ -49,20 +51,22 @@
 
         .item-card { background: white; padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .item-info-group { display: flex; align-items: center; gap: 15px; flex: 1; }
-        .check-circle { width: 28px; height: 28px; border: 2px solid #ccc; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: transparent; font-weight: bold; }
+        .check-circle { width: 28px; height: 28px; min-width: 28px; border: 2px solid #ccc; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: transparent; font-weight: bold; }
         
         .item-card.comprado { opacity: 0.7; background-color: #f8f9fa; }
         .item-card.comprado .check-circle { background-color: #4caf50; border-color: #4caf50; color: white; }
         .item-card.comprado .item-nome { text-decoration: line-through; color: #888; }
 
         .texto-grupo { display: flex; flex-direction: column; }
-        .item-nome { font-size: 18px; font-weight: bold; color: #333; }
-        .item-detalhes { font-size: 13px; color: #888; margin-top: 4px; }
+        .item-nome { font-size: 17px; font-weight: bold; color: #333; }
         
-        .acoes-grupo { display: flex; align-items: center; gap: 10px; }
+        /* Badge clicável para editar preço no card */
+        .item-preco-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #2e7d32; background: #e8f5e9; padding: 3px 8px; border-radius: 6px; margin-top: 5px; width: fit-content; font-weight: bold; }
+        .item-preco-badge.sem-preco { color: #666; background: #f1f3f5; font-weight: normal; }
+
+        .acoes-grupo { display: flex; align-items: center; gap: 8px; }
         .qtd-controle { display: flex; align-items: center; background: #f1f3f5; border-radius: 20px; padding: 2px 5px; }
         .btn-qtd { background: none; border: none; font-size: 18px; font-weight: bold; width: 28px; height: 28px; cursor: pointer; color: #555; border-radius: 50%; display: flex; justify-content: center; align-items: center; }
-        .btn-qtd:hover { background: #e2e6ea; }
         .qtd-valor { font-weight: bold; font-size: 15px; width: 20px; text-align: center; }
 
         .btn-excluir { background: none; border: none; font-size: 20px; cursor: pointer; color: #ccc; padding: 5px; }
@@ -78,6 +82,8 @@
         <span>🛒 Lista de Compras</span>
         <button class="btn-limpar" onclick="limparComprados()">Limpar Comprados</button>
     </div>
+
+    <div id="banner-servidor">⏳ Acordando o servidor na nuvem... Aguarde alguns segundos.</div>
     
     <div class="form-container">
         <div class="input-row">
@@ -90,7 +96,6 @@
             <button class="btn-add" onclick="adicionarItem()">+ Adicionar</button>
         </div>
 
-        <!-- Visor da Câmera, Upload e Digitação de Código -->
         <div id="leitor-container">
             <div id="reader" style="width: 100%;"></div>
             <div class="ferramentas-scanner">
@@ -99,7 +104,7 @@
                     🖼️ Ler de uma foto nítida
                 </button>
                 <div class="codigo-manual-row">
-                    <input type="text" id="codigo-manual" class="input-codigo-manual" placeholder="Ou digite os números (ex: 5449000236623)">
+                    <input type="text" id="codigo-manual" class="input-codigo-manual" placeholder="Ou digite os números do código">
                     <button type="button" class="btn-buscar-codigo" onclick="buscarCodigoManual()">Buscar</button>
                 </div>
             </div>
@@ -116,6 +121,7 @@
     let itensGlobais = [];
     let html5QrCode = null;
     let cameraAtiva = false;
+    let ultimoCodigoLido = null;
 
     const formatosSuportados = [
         Html5QrcodeSupportedFormats.EAN_13,
@@ -140,7 +146,7 @@
         btn.classList.add('ativo');
         btn.innerText = '✖';
         statusDiv.style.display = 'block';
-        statusDiv.innerText = 'Aponte a câmera ou use as opções abaixo...';
+        statusDiv.innerText = 'Aponte a câmera para o código de barras...';
 
         html5QrCode = new Html5Qrcode("reader", {
             formatsToSupport: formatosSuportados,
@@ -165,7 +171,7 @@
                     statusDiv.innerText = `Código ${codigoLido} lido! Buscando produto...`;
                     await buscarProdutoNaApi(codigoLido);
                 },
-                (erroLeitura) => {}
+                () => {}
             );
             cameraAtiva = true;
         } catch (err) {
@@ -210,7 +216,7 @@
             await buscarProdutoNaApi(codigoLido);
         } catch (err) {
             statusDiv.style.color = '#d32f2f';
-            statusDiv.innerText = 'Imagem embaçada ou sem margem branca. Tente outra foto ou digite os números.';
+            statusDiv.innerText = 'Não foi possível ler a imagem. Tente outra foto ou digite os números.';
         }
         evento.target.value = '';
     }
@@ -239,14 +245,17 @@
             const dados = await resposta.json();
 
             if (dados.encontrado) {
+                ultimoCodigoLido = null;
                 inputNome.value = dados.nome;
                 statusDiv.style.color = '#2e7d32';
                 statusDiv.innerText = `Produto identificado! Escolha a categoria e clique em + Adicionar.`;
             } else {
+                ultimoCodigoLido = codigo;
                 inputNome.value = '';
-                inputNome.placeholder = `Cód: ${codigo} (digite o nome)`;
-                statusDiv.style.color = '#d32f2f';
-                statusDiv.innerText = `Código ${codigo} não encontrado na base. Digite o nome manualmente.`;
+                inputNome.placeholder = `Nome para o cód. ${codigo}...`;
+                inputNome.focus();
+                statusDiv.style.color = '#e65100';
+                statusDiv.innerText = `Código novo! Digite o nome acima e ele ficará salvo para as próximas compras.`;
             }
         } catch (error) {
             statusDiv.style.color = '#d32f2f';
@@ -256,16 +265,25 @@
         setTimeout(() => {
             statusDiv.style.display = 'none';
             statusDiv.style.color = '#1976d2';
-        }, 5000);
+        }, 6000);
     }
 
     async function carregarCategorias() {
-        const resposta = await fetch(`${urlApi}/categorias`);
-        const categorias = await resposta.json();
-        const select = document.getElementById('categoria-item');
-        categorias.forEach(cat => {
-            select.innerHTML += `<option value="${cat.id}">${cat.nome}</option>`;
-        });
+        const banner = document.getElementById('banner-servidor');
+        const timerBanner = setTimeout(() => { banner.style.display = 'block'; }, 1500);
+
+        try {
+            const resposta = await fetch(`${urlApi}/categorias`);
+            const categorias = await resposta.json();
+            const select = document.getElementById('categoria-item');
+            select.innerHTML = '<option value="">Categoria...</option>';
+            categorias.forEach(cat => {
+                select.innerHTML += `<option value="${cat.id}">${cat.nome}</option>`;
+            });
+        } finally {
+            clearTimeout(timerBanner);
+            banner.style.display = 'none';
+        }
     }
 
     async function carregarItens() {
@@ -289,6 +307,8 @@
             itensAgrupados[categoriaNome].forEach(item => {
                 const classeCss = item.comprado ? 'comprado' : '';
                 const precoFormatado = item.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                const classePreco = item.preco === 0 ? 'sem-preco' : '';
+                const textoPreco = item.preco === 0 ? '+ Definir preço' : `${precoFormatado} ✎`;
                 
                 divLista.innerHTML += `
                     <div class="item-card ${classeCss}" onclick="ticarItem(${item.id})">
@@ -296,7 +316,9 @@
                             <div class="check-circle">✓</div>
                             <div class="texto-grupo">
                                 <span class="item-nome">${item.nome}</span>
-                                <span class="item-detalhes">${precoFormatado}</span>
+                                <span class="item-preco-badge ${classePreco}" onclick="editarPrecoRapido(event, ${item.id}, '${item.nome.replace(/'/g, "\\'")}', ${item.preco})">
+                                    ${textoPreco}
+                                </span>
                             </div>
                         </div>
                         
@@ -314,6 +336,21 @@
         }
         
         calcularTotal();
+    }
+
+    async function editarPrecoRapido(evento, id, nome, precoAtual) {
+        evento.stopPropagation();
+        const valorSugerido = precoAtual > 0 ? precoAtual.toFixed(2) : '';
+        const entrada = prompt(`Preço unitário de "${nome}" (R$):`, valorSugerido);
+        if (entrada === null) return;
+
+        const novoPreco = parseFloat(entrada.replace(',', '.')) || 0.0;
+        await fetch(`${urlApi}/itens/${id}/preco`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ preco: novoPreco })
+        });
+        carregarItens();
     }
 
     async function limparComprados() {
@@ -340,7 +377,7 @@
     }
 
     async function adicionarItem() {
-        const nomeDigitado = document.getElementById('nome-item').value;
+        const nomeDigitado = document.getElementById('nome-item').value.trim();
         const categoriaEscolhida = document.getElementById('categoria-item').value;
         const precoDigitado = parseFloat(document.getElementById('preco-item').value) || 0.0;
         
@@ -349,10 +386,17 @@
         await fetch(`${urlApi}/itens`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: nomeDigitado, categoria_id: parseInt(categoriaEscolhida), preco: precoDigitado })
+            body: JSON.stringify({
+                nome: nomeDigitado,
+                categoria_id: parseInt(categoriaEscolhida),
+                preco: precoDigitado,
+                codigo_barras: ultimoCodigoLido
+            })
         });
         
+        ultimoCodigoLido = null;
         document.getElementById('nome-item').value = '';
+        document.getElementById('nome-item').placeholder = 'Produto...';
         document.getElementById('preco-item').value = '';
         carregarItens();
     }
@@ -371,7 +415,7 @@
 
     carregarCategorias();
     carregarItens();
-    
+
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js');
     }

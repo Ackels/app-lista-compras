@@ -1,159 +1,169 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
-import sqlite3
-import requests
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import requests
+from banco import conectar
 
-app = FastAPI(title="Meu App de Compras")
+app = FastAPI()
 
-# Configuração de Segurança (CORS) para permitir que o HTML converse com a API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class NovoItem(BaseModel):
+# Garante que a tabela de códigos personalizados exista no banco
+def inicializar_tabela_produtos():
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS produtos_conhecidos (
+            codigo_barras TEXT PRIMARY KEY,
+            nome TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+inicializar_tabela_produtos()
+
+class ItemCreate(BaseModel):
     nome: str
     categoria_id: int
     preco: float = 0.0
+    codigo_barras: str | None = None
+
+class PrecoUpdate(BaseModel):
+    preco: float
 
 @app.get("/categorias")
 def listar_categorias():
-    conexao = sqlite3.connect('compras.db')
-    cursor = conexao.cursor()
-    cursor.execute("SELECT id, nome FROM categorias")
-    resultados = cursor.fetchall()
-    conexao.close()
-    
-    lista_categorias = []
-    for linha in resultados:
-        lista_categorias.append({"id": linha[0], "nome": linha[1]})
-    return lista_categorias
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nome FROM categorias ORDER BY id")
+    categorias = [{"id": row[0], "nome": row[1]} for row in cursor.fetchall()]
+    conn.close()
+    return categorias
 
-@app.post("/itens")
-def adicionar_item(item: NovoItem):
-    conexao = sqlite3.connect('compras.db')
-    cursor = conexao.cursor()
-    cursor.execute(
-        "INSERT INTO itens (nome, quantidade, comprado, categoria_id, preco) VALUES (?, 1, 0, ?, ?)",
-        (item.nome, item.categoria_id, item.preco)
-    )
-    conexao.commit()
-    conexao.close()
-    return {"mensagem": f"O item '{item.nome}' foi adicionado com sucesso!"}
-
-# --- A ROTA QUE PROVAVELMENTE FULTOU ---
 @app.get("/itens")
 def listar_itens():
-    conexao = sqlite3.connect('compras.db')
-    cursor = conexao.cursor()
-    cursor.execute('''
-        SELECT itens.id, itens.nome, itens.quantidade, categorias.nome, itens.comprado, itens.preco
-        FROM itens
-        JOIN categorias ON itens.categoria_id = categorias.id
-    ''')
-    resultados = cursor.fetchall()
-    conexao.close()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT i.id, i.nome, i.comprado, c.nome, i.preco, i.quantidade
+        FROM itens i
+        JOIN categorias c ON i.categoria_id = c.id
+        ORDER BY i.comprado ASC, i.id DESC
+    """)
+    itens = [
+        {
+            "id": row[0],
+            "nome": row[1],
+            "comprado": bool(row[2]),
+            "categoria": row[3],
+            "preco": float(row[4] or 0.0),
+            "quantidade": int(row[5] or 1)
+        }
+        for row in cursor.fetchall()
+    ]
+    conn.close()
+    return itens
+
+@app.post("/itens")
+def criar_item(item: ItemCreate):
+    conn = conectar()
+    cursor = conn.cursor()
     
-    lista_itens = []
-    for linha in resultados:
-        lista_itens.append({
-            "id": linha[0],
-            "nome": linha[1],
-            "quantidade": linha[2],
-            "categoria": linha[3],
-            "comprado": bool(linha[4]),
-            "preco": linha[5]  # Adicionamos o preço aqui!
-        })
-    return lista_itens
+    # Se veio um código de barras novo, salva/atualiza na memória do app
+    if item.codigo_barras:
+        cursor.execute("DELETE FROM produtos_conhecidos WHERE codigo_barras = %s" if hasattr(conn, 'info') else "DELETE FROM produtos_conhecidos WHERE codigo_barras = ?", (item.codigo_barras,))
+        cursor.execute("INSERT INTO produtos_conhecidos (codigo_barras, nome) VALUES (%s, %s)" if hasattr(conn, 'info') else "INSERT INTO produtos_conhecidos (codigo_barras, nome) VALUES (?, ?)", (item.codigo_barras, item.nome))
+
+    query = "INSERT INTO itens (nome, categoria_id, preco, quantidade, comprado) VALUES (%s, %s, %s, 1, FALSE)" if hasattr(conn, 'info') else "INSERT INTO itens (nome, categoria_id, preco, quantidade, comprado) VALUES (?, ?, ?, 1, 0)"
+    cursor.execute(query, (item.nome, item.categoria_id, item.preco))
+    conn.commit()
+    conn.close()
+    return {"mensagem": "Item adicionado"}
 
 @app.put("/itens/{item_id}")
-def alternar_item(item_id: int):
-    conexao = sqlite3.connect('compras.db')
-    cursor = conexao.cursor()
-    
-    # 1. Primeiro, perguntamos ao banco qual é o status atual deste item
-    cursor.execute("SELECT comprado FROM itens WHERE id = ?", (item_id,))
-    status_atual = cursor.fetchone()[0]
-    
-    # 2. Se for 1, vira 0. Se for 0, vira 1 (Lógica de "interruptor")
-    novo_status = 0 if status_atual == 1 else 1
-    
-    # 3. Atualizamos o banco com o novo status
-    cursor.execute("UPDATE itens SET comprado = ? WHERE id = ?", (novo_status, item_id))
-    conexao.commit()
-    conexao.close()
-    
-    return {"mensagem": f"Status do item {item_id} alterado!"}
+def alternar_comprado(item_id: int):
+    conn = conectar()
+    cursor = conn.cursor()
+    query = "UPDATE itens SET comprado = NOT comprado WHERE id = %s" if hasattr(conn, 'info') else "UPDATE itens SET comprado = NOT comprado WHERE id = ?"
+    cursor.execute(query, (item_id,))
+    conn.commit()
+    conn.close()
+    return {"mensagem": "Status atualizado"}
 
+@app.put("/itens/{item_id}/preco")
+def atualizar_preco(item_id: int, dados: PrecoUpdate):
+    conn = conectar()
+    cursor = conn.cursor()
+    query = "UPDATE itens SET preco = %s WHERE id = %s" if hasattr(conn, 'info') else "UPDATE itens SET preco = ? WHERE id = ?"
+    cursor.execute(query, (dados.preco, item_id))
+    conn.commit()
+    conn.close()
+    return {"mensagem": "Preço atualizado"}
 
-# NOVA ROTA: O verbo DELETE é o padrão na internet para apagar coisas
+@app.put("/itens/{item_id}/{acao}")
+def alterar_quantidade(item_id: int, acao: str):
+    conn = conectar()
+    cursor = conn.cursor()
+    if acao == "aumentar":
+        query = "UPDATE itens SET quantidade = quantidade + 1 WHERE id = %s" if hasattr(conn, 'info') else "UPDATE itens SET quantidade = quantidade + 1 WHERE id = ?"
+        cursor.execute(query, (item_id,))
+    elif acao == "diminuir":
+        query = "UPDATE itens SET quantidade = CASE WHEN quantidade > 1 THEN quantidade - 1 ELSE 1 END WHERE id = %s" if hasattr(conn, 'info') else "UPDATE itens SET quantidade = CASE WHEN quantidade > 1 THEN quantidade - 1 ELSE 1 END WHERE id = ?"
+        cursor.execute(query, (item_id,))
+    conn.commit()
+    conn.close()
+    return {"mensagem": "Quantidade atualizada"}
+
 @app.delete("/itens/{item_id}")
 def deletar_item(item_id: int):
-    conexao = sqlite3.connect('compras.db')
-    cursor = conexao.cursor()
-    
-    # Apaga do banco onde o ID for igual ao enviado
-    cursor.execute("DELETE FROM itens WHERE id = ?", (item_id,))
-    conexao.commit()
-    conexao.close()
-    
-    return {"mensagem": "Item excluído com sucesso!"}
-
-# Rota para AUMENTAR a quantidade
-@app.put("/itens/{item_id}/aumentar")
-def aumentar_quantidade(item_id: int):
-    conexao = sqlite3.connect('compras.db')
-    cursor = conexao.cursor()
-    # Pega o valor atual e soma 1
-    cursor.execute("UPDATE itens SET quantidade = quantidade + 1 WHERE id = ?", (item_id,))
-    conexao.commit()
-    conexao.close()
-    return {"mensagem": "Quantidade aumentada"}
-
-# Rota para DIMINUIR a quantidade
-@app.put("/itens/{item_id}/diminuir")
-def diminuir_quantidade(item_id: int):
-    conexao = sqlite3.connect('compras.db')
-    cursor = conexao.cursor()
-    # Subtrai 1, mas a regra "AND quantidade > 1" impede que a quantidade fique zero ou negativa
-    cursor.execute("UPDATE itens SET quantidade = quantidade - 1 WHERE id = ? AND quantidade > 1", (item_id,))
-    conexao.commit()
-    conexao.close()
-    return {"mensagem": "Quantidade diminuída"}
+    conn = conectar()
+    cursor = conn.cursor()
+    query = "DELETE FROM itens WHERE id = %s" if hasattr(conn, 'info') else "DELETE FROM itens WHERE id = ?"
+    cursor.execute(query, (item_id,))
+    conn.commit()
+    conn.close()
+    return {"mensagem": "Item excluído"}
 
 @app.delete("/itens-comprados")
 def limpar_comprados():
-    conexao = sqlite3.connect('compras.db')
-    cursor = conexao.cursor()
-    cursor.execute("DELETE FROM itens WHERE comprado = 1")
-    conexao.commit()
-    conexao.close()
-    return {"mensagem": "Itens comprados foram removidos!"}
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM itens WHERE comprado = TRUE" if hasattr(conn, 'info') else "DELETE FROM itens WHERE comprado = 1")
+    conn.commit()
+    conn.close()
+    return {"mensagem": "Itens comprados removidos"}
 
 @app.get("/produto/{codigo_barras}")
-def buscar_produto_por_codigo(codigo_barras: str):
+def buscar_produto(codigo_barras: str):
+    # 1. Primeiro consulta na memória local do próprio app
+    conn = conectar()
+    cursor = conn.cursor()
+    query = "SELECT nome FROM produtos_conhecidos WHERE codigo_barras = %s" if hasattr(conn, 'info') else "SELECT nome FROM produtos_conhecidos WHERE codigo_barras = ?"
+    cursor.execute(query, (codigo_barras,))
+    resultado_local = cursor.fetchone()
+    conn.close()
+
+    if resultado_local:
+        return {"encontrado": True, "nome": resultado_local[0], "origem": "local"}
+
+    # 2. Se não estiver na memória local, busca no Open Food Facts
     url = f"https://world.openfoodfacts.org/api/v0/product/{codigo_barras}.json"
-    
-    # Cabeçalho exigido pela Open Food Facts para identificar o app
-    headers = {"User-Agent": "AppListaComprasFaculdade/1.0"}
-    resposta = requests.get(url, headers=headers)
-    
-    if resposta.status_code == 200:
-        dados = resposta.json()
-        if dados.get("status") == 1:
-            produto = dados.get("product", {})
-            # Tenta pegar o nome em português primeiro, senão pega o nome genérico
-            nome = produto.get("product_name_pt") or produto.get("product_name") or "Produto sem nome cadastrado"
+    try:
+        resposta = requests.get(url, timeout=6).json()
+        if resposta.get("status") == 1:
+            produto = resposta.get("product", {})
+            nome = produto.get("product_name_pt") or produto.get("product_name") or ""
             marca = produto.get("brands", "")
-            
-            nome_completo = f"{nome} ({marca})" if marca else nome
-            return {"encontrado": True, "nome": nome_completo}
-            
-    return {"encontrado": False, "mensagem": "Produto não encontrado na base pública."}
+            nome_completo = f"{nome} - {marca}".strip(" -") if marca else nome
+            if nome_completo:
+                return {"encontrado": True, "nome": nome_completo, "origem": "openfoodfacts"}
+    except Exception:
+        pass
 
-
-# python -m uvicorn api:app --reload
+    return {"encontrado": False, "nome": ""}
